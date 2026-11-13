@@ -6,3 +6,5 @@ node_modules/
 coverage/
 test-results/
 *.log
+public/workspace.js
+public/studio.css

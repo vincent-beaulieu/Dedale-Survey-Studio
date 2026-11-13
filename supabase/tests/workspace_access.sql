@@ -14,7 +14,7 @@ do $$begin
  begin
   perform public.save_survey_draft((select project from fixture),0,'{"schemaVersion":1,"sections":[]}');
   raise exception 'Stale write accepted';
- exception when serialization_failure then null; end;
+ exception when sqlstate 'PT409' then null; end;
  begin
   perform public.save_survey_draft((select project from fixture),1,'{}');
   raise exception 'Invalid document accepted';
