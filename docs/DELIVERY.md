@@ -1,3 +1,7 @@
+# Update: Supabase development foundation created and tested
+
+See [SUPABASE.md](SUPABASE.md) for the current database state. The provisioning blockers below describe the earlier checkpoint and are now resolved. UI integration remains pending.
+
 # Delivery checkpoint — 2026-11-13
 
 ## Verified state
