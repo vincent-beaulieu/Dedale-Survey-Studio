@@ -1,16 +1,19 @@
 # Dedale Survey Studio
 
-V6 is the approved visual baseline. `public/index.html` is an exact copy of the supplied HTML. This is a frontend prototype, NOT a working survey collection service.
+Development pilot connected to Supabase. The original V6 remains at `/demo.html`; `/` is the authenticated workspace using its fonts, logo and UI tokens.
 
-## Verify
+## Run
 
-Use Node 24. Run `npm ci --ignore-scripts`, then `npm test`.
-The tests exercise script parsing, initial render, light default even on a dark OS, theme toggle and links rendered on the initial page. They do not establish browser visual fidelity, persistence or backend readiness.
+Node 24, `npm ci --ignore-scripts`. Set `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (publishable key only). Run `npm run build`, then serve `public/` over HTTP. Build output is generated, not committed. `npm test` runs prototype regression tests. `scripts/live-check.mjs` is an explicit integration test requiring a disposable development account outside the repository; never use customer credentials.
 
-## Deployment
+## Implemented
 
-`vercel.json` serves only `public/`. The existing Vercel project is `dedale-survey-studio`, team `vincent-projects2`. Its live V6 preview was not replaced by this preparation work.
+Email/password sign-in, account creation request, workspace creation/list, projects, draft editor (single/multiple choice, short/long text, number and scale), debounced save, explicit save, revision conflict protection, reload and sign-out. All data is scoped by Supabase row-level security; no service-role key is used. Supabase SDK manages session persistence and refresh.
 
-GitHub target: https://github.com/vincent-beaulieu/Dedale-Survey-Studio
+The existing vanilla frontend is retained for this increment. Supabase provides authentication, API and database; a Next.js migration is not needed for these operations and is deferred until server-specific features justify it.
 
-Status and next steps are in [docs/DELIVERY.md](docs/DELIVERY.md). No secrets, real respondent data or authentication credentials belong in this repository.
+## Pilot limitations
+
+Email/password signup requires confirmed email. Configure Supabase Authentication URL Configuration with the preview URL and custom SMTP before inviting a team. Default Supabase email delivery is restricted; self-service signup delivery is not validated by the automated fixture test. A project owner can provision a confirmed pilot account through Supabase Authentication for initial testing. Do not disable confirmation for production.
+
+No invitations, per-project roles, production deployment, public respondent collection, full branching, validated exports or AI integration yet. The demo remains simulated and is separate from stored projects. Development data only until launch gates pass. See docs/CONNECTED-PILOT.md.
