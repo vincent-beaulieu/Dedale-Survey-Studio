@@ -50,6 +50,7 @@ function renderEditor(){
  if(q){preview(q);if(!readOnly){$('#q-text').oninput=e=>{q.text=e.target.value;preview(q);changed();};$('#q-type').onchange=e=>{q.type=e.target.value;if(!q.opts?.length)q.opts=['Option 1','Option 2'];changed();renderEditor();};$('#q-options')?.addEventListener('input',e=>{q.opts=e.target.value.split('\n');preview(q);changed();});$('#q-required').onchange=e=>{q.req=e.target.checked;changed();};$('#delete').onclick=()=>{for(const s of doc.sections)s.qs=s.qs.filter(x=>x.id!==q.id);selected=Math.max(0,selected-1);changed();renderEditor();};$('#duplicate').onclick=()=>{doc.sections[0].qs.push({...structuredClone(q),id:crypto.randomUUID()});selected=questions().length-1;changed();renderEditor();};}}
  if(!readOnly){$('#add').onclick=()=>{doc.sections[0].qs.push({id:crypto.randomUUID(),type:'single',text:'New question',opts:['Option 1','Option 2'],req:true});selected=questions().length-1;changed();renderEditor();$('#q-text').focus();};$('#save').onclick=()=>flush();}
  $('#reload').onclick=()=>action($('#reload'),async()=>{if(saving)return;if(dirty&&!confirm('Discard your unsaved changes and load the saved version?'))return;await openProject(project,project.editable);});
+ if(!readOnly){const publish=document.createElement('button');publish.className='btn btn-primary';publish.textContent='Publish survey';publish.onclick=()=>action(publish,async()=>{if(!await flush())return;const v=await query(db.rpc('publish_survey',{project:project.id,expected_revision:revision}));const link=new URL(location.origin);link.searchParams.set('survey',v.token);notice('Published. Respondent link: '+link.href);});main.querySelector('.save-bar').append(publish);const results=document.createElement('button');results.className='btn btn-ghost';results.textContent='Export responses (CSV)';results.onclick=()=>action(results,exportResponses);main.querySelector('.save-bar').append(results);}
  status();
 }
 function preview(q){$('#preview-title').textContent=q.text;$('#preview-answer').innerHTML=['single','multi'].includes(q.type)?`<ul>${q.opts.map(o=>`<li>${esc(o)}</li>`).join('')}</ul>`:`<p class="muted">${esc(types[q.type])}${q.req?' · Required':''}</p>`;}
@@ -66,4 +67,52 @@ $('#overview').onclick=async()=>{try{if(await flush())await load();}catch(e){fai
 $('#logout').onclick=e=>action(e.currentTarget,async()=>{if(!await flush())return;await query(db.auth.signOut());project=null;doc=null;workspace=null;notice();auth();});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 db.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT'){clearTimeout(timer);auth();}});
-load().catch(fail);
+(new URLSearchParams(location.search).has('survey') ? respondent() : load()).catch(fail);
+
+async function respondent(){
+ const token=new URLSearchParams(location.search).get('survey');
+ document.querySelector('.work-side').hidden=true;
+ document.querySelector('.work-shell').style.display='block';
+ const survey=await query(db.rpc('get_public_survey',{token}));
+ if(survey.closed){view('<h1>Survey closed</h1><p>This questionnaire is no longer accepting responses.</p>');return;}
+ const qs=survey.document.sections.flatMap(section=>section.qs);
+ const storageKey='submission-'+token;
+ let submissionKey=sessionStorage.getItem(storageKey);
+ if(!submissionKey){submissionKey=crypto.randomUUID();sessionStorage.setItem(storageKey,submissionKey);}
+ function control(q){
+  const required=q.req?'required':'';
+  if(q.type==='single')return `<select name="${esc(q.id)}" ${required}><option value="">Select an answer</option>${q.opts.map((o,i)=>`<option value="${i}">${esc(o)}</option>`).join('')}</select>`;
+  if(q.type==='multi')return q.opts.map((o,i)=>`<label><input type="checkbox" name="${esc(q.id)}" value="${i}"> ${esc(o)}</label>`).join('');
+  if(q.type==='open')return `<textarea name="${esc(q.id)}" maxlength="5000" ${required}></textarea>`;
+  return `<input name="${esc(q.id)}" type="${['number','scale'].includes(q.type)?'number':'text'}" ${q.type==='scale'?'min="0" max="10" step="1"':q.type==='number'?'min="-1000000000000" max="1000000000000" step="any"':'maxlength="120"'} ${required}>`;
+ }
+ view(`<h1>${esc(survey.title)}</h1><form id="response" class="work-form">${qs.map(q=>`<fieldset class="card"><legend>${esc(q.text)}${q.req?' *':''}</legend>${control(q)}</fieldset>`).join('')}<button class="btn btn-primary" type="submit">Submit responses</button></form>`);
+ $('#response').onsubmit=e=>{e.preventDefault();action(e.submitter,async()=>{
+  const form=new FormData(e.target),response={};
+  for(const q of qs){const raw=form.get(q.id);if(q.type==='multi'){response[q.id]=form.getAll(q.id).map(Number);if(q.req&&!response[q.id].length)throw Error('Please answer: '+q.text);}else if(raw!==null&&raw!=='')response[q.id]=['single','number','scale'].includes(q.type)?Number(raw):raw;}
+  await query(db.rpc('submit_survey',{token,submission_key:submissionKey,response}));
+  notice();view('<section class="card"><h1>Thank you.</h1><p>Your responses have been saved.</p></section>');
+ });};
+}
+
+async function exportResponses(){
+ const versions=await query(db.from('survey_versions').select('id,version,document').eq('project_id',project.id));
+ const rows=[['Submission ID','Version','Question','Answer']];
+ for(const version of versions){
+  let offset=0;
+  while(true){
+   const submissions=await query(db.from('survey_submissions').select('id,answers').eq('version_id',version.id).order('id').range(offset,offset+999));
+   for(const submission of submissions)for(const q of version.document.sections.flatMap(s=>s.qs)){
+    const value=submission.answers[q.id];
+    const answer=q.type==='single'?q.opts[value]:q.type==='multi'?(value||[]).map(i=>q.opts[i]).join('; '):value;
+    rows.push([submission.id,version.version,q.text,answer??'']);
+   }
+   if(submissions.length<1000)break;
+   offset+=1000;
+  }
+ }
+ const csv=rows.map(row=>row.map(value=>{let text=String(value);if(/^[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"';}).join(',')).join('\r\n');
+ const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+ const a=document.createElement('a');a.href=url;a.download='survey-responses.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ notice((rows.length-1)+' answer rows exported.');
+}
